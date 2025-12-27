@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import googlemaps
 import time
 import requests
@@ -92,6 +93,7 @@ def sreality_scrape():
     BASE_URL = (
         "https://www.sreality.cz/api/v1/estates/search?"
         "category_main_cb=1"
+        "&category_type_cb=1"
         "&locality_country_id=112"
         "&locality_region_id=10"
         "&building_condition={condition}"
@@ -152,6 +154,98 @@ def sreality_scrape():
 
     return pd.concat(all_dfs, ignore_index=True)
 
+# Function to extract name from dictionary
+def get_name(obj):
+    if isinstance(obj, dict) and 'name' in obj:
+        return obj['name']
+    return None
+
+# Function to extract image URL
+def get_first_image_url(image_list):
+    if isinstance(image_list, list) and len(image_list) > 0 and isinstance(image_list[0], dict) and 'advert_image_sdn_url' in image_list[0]:
+        return image_list[0]['advert_image_sdn_url']
+    return None
+
+# Function to extract plain image URL
+def get_first_plain_image_url(image_list):
+    if isinstance(image_list, list) and len(image_list) > 0:
+        return image_list[0]
+    return None
+
+# Function to extract city
+def get_city(locality_obj):
+    if isinstance(locality_obj, dict) and 'city' in locality_obj:
+        return locality_obj['city']
+    return None
+
+# Function to extract gps_lon
+def get_gps_lon(locality_obj):
+    if isinstance(locality_obj, dict) and 'gps_lon' in locality_obj:
+        return locality_obj['gps_lon']
+    return None
+
+# Function to extract gps_lat
+def get_gps_lat(locality_obj):
+    if isinstance(locality_obj, dict) and 'gps_lat' in locality_obj:
+        return locality_obj['gps_lat']
+    return None
+
+# Function to extract region
+def get_region(locality_obj):
+    if isinstance(locality_obj, dict) and 'region' in locality_obj:
+        return locality_obj['region']
+    return None
+
+# Function to extract district
+def get_district(locality_obj):
+    if isinstance(locality_obj, dict) and 'district' in locality_obj:
+        return locality_obj['district']
+    return None
+
+# Function to extract citypart
+def get_citypart(locality_obj):
+    if isinstance(locality_obj, dict) and 'citypart' in locality_obj:
+        return locality_obj['citypart']
+    return None
+
+from sklearn.neighbors import BallTree
+
+def assign_nearest_metro(
+    flats_df,
+    metro_df,
+    lat_col="gps_lat",
+    lon_col="gps_lon"
+):
+    df = flats_df.dropna(subset=[lat_col, lon_col]).copy()
+
+    df["lat_rad"] = np.radians(df[lat_col])
+    df["lon_rad"] = np.radians(df[lon_col])
+
+    metro = metro_df.copy()
+    metro["lat_rad"] = np.radians(metro["lat"])
+    metro["lon_rad"] = np.radians(metro["lng"])
+
+    tree = BallTree(
+        metro[["lat_rad", "lon_rad"]].values,
+        metric="haversine"
+    )
+
+    dist, idx = tree.query(
+        df[["lat_rad", "lon_rad"]].values,
+        k=1
+    )
+
+    EARTH_RADIUS = 6_371_000  # m
+
+    df["nearest_metro"] = metro.iloc[idx.flatten()]["name"].values
+    df["nearest_metro_line"] = metro.iloc[idx.flatten()]["line"].values
+    df["distance_to_metro_m"] = dist.flatten() * EARTH_RADIUS
+
+    df.drop(columns=["lat_rad", "lon_rad"], inplace=True)
+
+    return df
+
+
 if __name__ == "__main__":
 
     API_KEY = get_secret(
@@ -165,3 +259,7 @@ if __name__ == "__main__":
     sreality_df = sreality_scrape()
     print("\nSreality data preview:")
     print(sreality_df.head())
+
+    metro_df.to_csv("metro_stations.csv", index=False)
+    sreality_df.to_csv("sreality_flats.csv", index=False)
+    print("\nData saved to CSV files.")
